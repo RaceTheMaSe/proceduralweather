@@ -1,5 +1,5 @@
 //Worldgen Functions and Classes
-#include <noise/noise.h>
+#include <libnoise/noise.h>
 #include <iostream>
 #include <stdlib.h>
 #include "player.h"
@@ -7,6 +7,14 @@
 #include <time.h>
 
 using namespace noise;
+
+//Screen dimension constants - square
+const int SCREEN_WIDTH = 1000;
+const int SCREEN_HEIGHT = SCREEN_WIDTH;
+extern int localGrid;
+extern int cellSize;
+extern const size_t gridSizeDefault;
+extern int seedDefault;
 
 class Climate;
 class Terrain;
@@ -16,7 +24,7 @@ class Vegetation;
 class Vegetation{
   public:
   //Calculates wether there is a tree or not
-  bool getTree(World territory, Player player, int i, int j);
+  bool getTree(const World* territory, const Player* player, int i, int j) const;
 };
 
 class Terrain{
@@ -24,60 +32,71 @@ class Terrain{
   int worldDepth = 4000;
   int worldHeight = 1000;
   int worldWidth = 1000;
+  size_t gridSize = gridSizeDefault;
+
+  Terrain(size_t gridSize);
+  ~Terrain();
 
   //Terrain Parameters
-  float depthMap[100][100];
+  float* depthMap = nullptr;
   void genDepth(int seed);
 
-  int biomeMap[100][100];
-  void genBiome(Climate climate);
+  int* biomeMap = nullptr;
+  void genBiome(const Climate& climate);
 
   //Erodes the Landscape for a number of years
-  void erode(int seed, Terrain terrain, int years);
+  void erode(int seed, const Terrain* terrain, int years);
 
   //Local Area (100 Tiles)
-  float localMap[50][50];
-  void genLocal(int seed, Player player);
+  float* localMap = nullptr;
+  void genLocal(int seed, const Player* player);
 };
 
 class Climate {
   public:
+  Climate(size_t gridSize);
+  ~Climate();
+
   //Curent Climate Maps
-  float TempMap[100][100];
-  float HumidityMap[100][100];
-  bool CloudMap[100][100];
-  bool RainMap[100][100];
-  float WindMap[100][100];
+  float* TempMap = nullptr;
+  float* HumidityMap = nullptr;
+  bool* CloudMap = nullptr;
+  bool* RainMap = nullptr;
+  float* WindMap = nullptr;
   double WindDirection[2] = {1,1}; //from 0-1
 
   //Average Climate Maps
-  float AvgRainMap[100][100];
-  float AvgWindMap[100][100];
-  float AvgCloudMap[100][100];
-  float AvgTempMap[100][100];
-  float AvgHumidityMap[100][100];
+  float* AvgRainMap = nullptr;
+  float* AvgWindMap = nullptr;
+  float* AvgCloudMap = nullptr;
+  float* AvgTempMap = nullptr;
+  float* AvgHumidityMap = nullptr;
 
-  void init(int day, int seed, Terrain terrain);
-  void initTempMap(Terrain terrain);
-  void initHumidityMap(Terrain terrain);
+  size_t gridSize = gridSizeDefault;
+
+  void init(int day, int seed, const Terrain* terrain);
+  void initTempMap(const Terrain* terrain);
+  void initHumidityMap(const Terrain* terrain);
   void initCloudMap();
   void initRainMap();
 
-  void calcWind(int day, int seed, Terrain terrain);
-  void calcTempMap(Terrain terrain);
-  void calcHumidityMap(Terrain terrain);
+  void calcWind(int day, int seed, const Terrain* terrain);
+  void calcTempMap(const Terrain* terrain);
+  void calcHumidityMap(const Terrain* terrain);
   void calcDownfallMap();
-  void calcWindMap(int day, int seed, Terrain terrain);
+  void calcWindMap(int day, int seed, const Terrain* terrain);
 
-  void calcAverage(int seed, Terrain terrain);
+  void calcAverage(int seed, const Terrain* terrain);
 };
 
 class World{
   public:
-  int xview = 50;
-  int yview = 50;
-  int seed = 15;
+  World(size_t gridSize, int seed);
+  int xview = localGrid;
+  int yview = localGrid;
+  int seed = seedDefault;
   int day = 0;
+  size_t gridSize = gridSizeDefault;
   Climate climate;
   Terrain terrain;
   Vegetation vegetation;
@@ -86,7 +105,7 @@ class World{
   void changePos(SDL_Event e);
 };
 
-bool Vegetation::getTree(World territory, Player player, int i, int j){
+bool Vegetation::getTree(const World* territory, const Player* player, int i, int j) const {
   //Code to Calculate wether or not we have a tree
   /* Ideally this generates a vegetation map, spitting out
   0 for nothing,
@@ -109,36 +128,38 @@ bool Vegetation::getTree(World territory, Player player, int i, int j){
   */
 
   //Perlin Noise Module
-  module::Perlin perlin;
+  module::Perlin perlin = {};
 
   perlin.SetOctaveCount(20);
   perlin.SetFrequency(1000);
   perlin.SetPersistence(0.8);
 
   //Generate the Height Map with Perlin Noise
-  float x = (float)(player.xTotal-25+i)/100000;
-  float y = (float)(player.yTotal-25+j)/100000;
+  float x = (float)(player->xTotal-localGrid/2+i)/100000;
+  float y = (float)(player->yTotal-localGrid/2+j)/100000;
 
   //This is not an efficient tree generation method
   //But a reasonable distribution for a grassland area
   srand(x+y);
-  int tree = ((int)(1/(perlin.GetValue(x, y, territory.seed+1)+1))*rand()%5)/4;
+  int tree = ((int)(1/(perlin.GetValue(x, y, territory->seed+1)+1))*rand()%5)/4;
 
   return tree;
 }
 
 void World::changePos(SDL_Event e){
   switch( e.key.keysym.sym ){
-    case SDLK_UP: yview -=50;
+    case SDLK_UP: yview -=localGrid;
       break;
-    case SDLK_DOWN: yview +=50;
+    case SDLK_DOWN: yview +=localGrid;
       break;
-    case SDLK_LEFT: xview -= 50;
+    case SDLK_LEFT: xview -= localGrid;
       break;
-    case SDLK_RIGHT: xview += 50;
+    case SDLK_RIGHT: xview += localGrid;
       break;
     }
 }
+
+World::World(size_t gridSize, int seedIn) : seed(seedIn), climate(gridSize), terrain(gridSize) { }
 
 void World::generate(){
   //Geography
@@ -146,17 +167,17 @@ void World::generate(){
   terrain.genDepth(seed);
 
   //Erode the Landscape based on iterative average climate
-  terrain.erode(seed, terrain, 1);
+  terrain.erode(seed, &terrain, 1);
 
   //Calculate the climate system of the eroded landscape
-  climate.init(day, seed, terrain);
-  climate.calcAverage(seed, terrain);
+  climate.init(day, seed, &terrain);
+  climate.calcAverage(seed, &terrain);
 
   //Generate the Surface Composition
   terrain.genBiome(climate);
 }
 
-void Terrain::genBiome(Climate climate){
+void Terrain::genBiome(const Climate& climate){
   /*
   Determine the Surface Biome:
   0: Water
@@ -173,83 +194,125 @@ void Terrain::genBiome(Climate climate){
 
   Compare the Parameters and decide what kind of ground we have.
   */
-  for(int i = 0; i<100; i++){
-    for(int j = 0; j<100; j++){
+  for(size_t i = 0; i<gridSize; i++){
+    for(size_t j = 0; j<gridSize; j++){
+      const size_t cell = i*gridSize+j;
       //0: Water
-      if(depthMap[i][j]<=200){
-        biomeMap[i][j] = 0;
+      if(depthMap[cell]<=200){
+        biomeMap[cell] = 0;
       }
       //1: Sandy Beach
-      else if(depthMap[i][j]<=204){
-        biomeMap[i][j] = 1;
+      else if(depthMap[cell]<=204){
+        biomeMap[cell] = 1;
       }
       //2: Gravel Beach
-      else if(depthMap[i][j]<210){
-        biomeMap[i][j] = 2;
+      else if(depthMap[cell]<210){
+        biomeMap[cell] = 2;
       }
       //3: Stony Beach Cliffs
-      else if(depthMap[i][j]<=220){
-        biomeMap[i][j] = 3;
+      else if(depthMap[cell]<=220){
+        biomeMap[cell] = 3;
       }
       //4: Wet Plains (Grassland)
       //5: Dry Plains (Shrubland)
-      else if(depthMap[i][j]<=600){
-        if(climate.AvgRainMap[i][j]>=0.02){
-          biomeMap[i][j] = 4;
+      else if(depthMap[cell]<=600){
+        if(climate.AvgRainMap[cell]>=0.02){
+          biomeMap[cell] = 4;
         }
         else{
-          biomeMap[i][j] = 5;
+          biomeMap[cell] = 5;
         }
       }
       //6: Rocky Hills
       //7: Temperate Forest
       //8: Boreal Forest
-      else if(depthMap[i][j]<=1300){
-        if(depthMap[i][j]<=1100){
-          biomeMap[i][j] = 7;
+      else if(depthMap[cell]<=1300){
+        if(depthMap[cell]<=1100){
+          biomeMap[cell] = 7;
         }
         else {
-          biomeMap[i][j] = 8;
+          biomeMap[cell] = 8;
         }
-        if(climate.AvgRainMap[i][j]<0.001 && i+rand()%4-2 > 5 && i+rand()%4-2 < 95 && j+rand()%4-2 > 5 && j+rand()%4-2 < 95){
-          biomeMap[i][j] = 6;
+        if(climate.AvgRainMap[cell]<0.001 && i+rand()%4-2 > 5 && i+rand()%4-2 < 95 && j+rand()%4-2 > 5 && j+rand()%4-2 < 95){
+          biomeMap[cell] = 6;
         }
       }
-      else if(depthMap[i][j]<=1500){
-        biomeMap[i][j] = 9;
+      else if(depthMap[cell]<=1500){
+        biomeMap[cell] = 9;
       }
       //Otherwise just Temperate Forest
       else{
-        biomeMap[i][j] = 10;
+        biomeMap[cell] = 10;
       }
     }
   }
 }
 
-void Terrain::erode(int seed, Terrain terrain, int years){
+void Terrain::erode(int seed, const Terrain* terrain, int years){
   //Climate Simulation
-  Climate average;
+  Climate* average = new Climate(gridSize);
 
   //Simulate the Years
   for(int i = 0; i<years; i++){
     //Initiate the Climate
-    average.init(0, seed, terrain);
+    average->init(0, seed, terrain);
 
     //Simulate 1 Year for Average Weather Conditions
-    average.calcAverage(seed, terrain);
+    average->calcAverage(seed, terrain);
 
     //Add Erosion of the Climate after 1 Year
     float erosion = 0;
-    for(int j = 0; j<100; j++){
-      for(int k=0; k<100; k++){
-        erosion = (average.AvgRainMap[j][k] + 0.5*average.AvgWindMap[j][k]);
-        depthMap[j][k] = depthMap[j][k] - 5*(depthMap[j][k]/2000) * (1-depthMap[j][k]/2000)*erosion;
+    for(size_t j = 0; j<gridSize; j++){
+      for(size_t k=0; k<gridSize; k++){
+        const size_t cell = j*gridSize+k;
+        erosion = (average->AvgRainMap[cell] + 0.5*average->AvgWindMap[cell]);
+        depthMap[cell] = depthMap[cell] - 5*(depthMap[cell]/2000) * (1-depthMap[cell]/2000)*erosion;
       }
     }
   }
+  delete average;
 }
 
-void Climate::init(int day, int seed, Terrain terrain){
+Climate::Climate(size_t gridSizeIn) : gridSize(gridSizeIn) {
+  const size_t gridSizeSq = gridSize*gridSize;
+  TempMap     = new float[gridSizeSq];
+  HumidityMap = new float[gridSizeSq];
+  CloudMap    = new bool [gridSizeSq];
+  RainMap     = new bool [gridSizeSq];
+  WindMap     = new float[gridSizeSq];
+
+  AvgRainMap     = new float[gridSizeSq];
+  AvgWindMap     = new float[gridSizeSq];
+  AvgCloudMap    = new float[gridSizeSq];
+  AvgTempMap     = new float[gridSizeSq];
+  AvgHumidityMap = new float[gridSizeSq];
+
+  memset(TempMap       ,0, sizeof(float)*gridSizeSq);
+  memset(HumidityMap   ,0, sizeof(float)*gridSizeSq);
+  memset(WindMap       ,0, sizeof(float)*gridSizeSq);
+
+  memset(AvgRainMap    ,0, sizeof(float)*gridSizeSq);
+  memset(AvgWindMap    ,0, sizeof(float)*gridSizeSq);
+  memset(AvgCloudMap   ,0, sizeof(float)*gridSizeSq);
+  memset(AvgTempMap    ,0, sizeof(float)*gridSizeSq);
+  memset(AvgHumidityMap,0, sizeof(float)*gridSizeSq);
+}
+
+Climate::~Climate(){
+  delete TempMap;
+  delete HumidityMap;
+  delete CloudMap;
+  delete RainMap;
+  delete WindMap;
+
+  delete AvgRainMap;
+  delete AvgWindMap;
+  delete AvgCloudMap;
+  delete AvgTempMap;
+  delete AvgHumidityMap;
+}
+
+void Climate::init(int day, int seed, const Terrain* terrain){
   calcWind(day, seed, terrain);
   initTempMap(terrain);
   initHumidityMap(terrain);
@@ -257,97 +320,102 @@ void Climate::init(int day, int seed, Terrain terrain){
   initCloudMap();
 }
 
-void Climate::calcAverage(int seed, Terrain terrain){
+void Climate::calcAverage(int seed, const Terrain* terrain){
   //Climate Simulation over n years
   int years = 1;
   int startDay = 0;
 
-  //Initiate average climate maps
-  for(int i = 0; i<100; i++){
-    for(int j=0; j<100; j++){
-      //Start at 0
-      AvgRainMap[i][j] = 0;
-      AvgWindMap[i][j] = 0;
-      AvgCloudMap[i][j] = 0;
-      AvgTempMap[i][j] = 0;
-      AvgHumidityMap[i][j] = 0;
-    }
-  }
-
   //Initiate Simulation at a starting point
-  Climate simulation;
-  simulation.init(startDay, seed, terrain);
+  Climate* simulation = new Climate(gridSize);
+  simulation->init(startDay, seed, terrain);
 
   //Simulate every day for n years
   for(int i = 0; i<years*365; i++){
     //Calculate new Climate
-    simulation.calcWind(i, seed, terrain);
-    simulation.calcTempMap(terrain);
-    simulation.calcHumidityMap(terrain);
-    simulation.calcDownfallMap();
+    simulation->calcWind(i, seed, terrain);
+    simulation->calcTempMap(terrain);
+    simulation->calcHumidityMap(terrain);
+    simulation->calcDownfallMap();
 
     //Average
-    for(int j = 0; j<100; j++){
-      for(int k = 0; k<100; k++){
-        AvgWindMap[j][k] = (AvgWindMap[j][k]*i+simulation.WindMap[j][k])/(i+1);
-        AvgRainMap[j][k] = (AvgRainMap[j][k]*i+simulation.RainMap[j][k])/(i+1);
-        AvgCloudMap[j][k] = (AvgCloudMap[j][k]*i+simulation.CloudMap[j][k])/(i+1);
-        AvgTempMap[j][k] = (AvgTempMap[j][k]*i+simulation.TempMap[j][k])/(i+1);
-        AvgHumidityMap[j][k] = (AvgHumidityMap[j][k]*i+simulation.HumidityMap[j][k])/(i+1);
+    for(size_t j = 0; j<gridSize; j++){
+      for(size_t k = 0; k<gridSize; k++){
+        const size_t cell = j*gridSize+k;
+        AvgWindMap[cell] = (AvgWindMap[cell]*i+simulation->WindMap[cell])/(i+1);
+        AvgRainMap[cell] = (AvgRainMap[cell]*i+simulation->RainMap[cell])/(i+1);
+        AvgCloudMap[cell] = (AvgCloudMap[cell]*i+simulation->CloudMap[cell])/(i+1);
+        AvgTempMap[cell] = (AvgTempMap[cell]*i+simulation->TempMap[cell])/(i+1);
+        AvgHumidityMap[cell] = (AvgHumidityMap[cell]*i+simulation->HumidityMap[cell])/(i+1);
       }
     }
   }
+  delete simulation;
+}
+
+Terrain::Terrain(size_t gridSizeIn) : gridSize(gridSizeIn){
+  const size_t gridSizeSq = gridSize*gridSize;
+  depthMap = new float[gridSizeSq];
+  biomeMap = new int[gridSizeSq];
+  localMap = new float[localGrid*localGrid];
+}
+
+Terrain::~Terrain(){
+  delete depthMap;
+  delete biomeMap;
 }
 
 void Terrain::genDepth(int seed){
   //Perlin Noise Module
 
   //Global Depth Map is Fine, unaffected by rivers.
-  module::Perlin perlin;
+  module::Perlin perlin = {};
 
   perlin.SetOctaveCount(12);
   perlin.SetFrequency(2);
   perlin.SetPersistence(0.6);
 
   //Generate the Perlin Noise World Map
-  for(int i = 0; i<100; i++){
-    for(int j = 0; j<100; j++){
+  for(size_t i = 0; i<gridSize; i++){
+    for(size_t j = 0; j<gridSize; j++){
+      const size_t cell = i*gridSize+j;
+
       //Generate the Height Map with Perlin Noise
-      float x = (float)i / 100;
-      float y = (float)j / 100;
-      depthMap[i][j] = (perlin.GetValue(x, y, seed))/5+0.25;
+      float x = (float)i / gridSize;
+      float y = (float)j / gridSize;
+      depthMap[cell] = (perlin.GetValue(x, y, seed))/5+0.25;
 
       //Multiply with the Height Factor
-      depthMap[i][j] = depthMap[i][j]*worldDepth;
+      depthMap[cell] *= worldDepth;
     }
   }
 }
 
-void Terrain::genLocal(int seed, Player player){
+void Terrain::genLocal(int seed, const Player* player){
   //Perlin Noise Module
-  module::Perlin perlin;
+  module::Perlin perlin = {};
 
   perlin.SetOctaveCount(12);
   perlin.SetFrequency(2);
   perlin.SetPersistence(0.6);
 
   //Generate the Perlin Noise World Map
-  for(int i = 0; i<50; i++){
-    for(int j = 0; j<50; j++){
+  for(int i = 0; i<localGrid; i++){
+    for(int j = 0; j<localGrid; j++){
       //Generate the Height Map with Perlin Noise
-      float x = (float)(player.xTotal-25+i)/100000;
-      float y = (float)(player.yTotal-25+j)/100000;
-      localMap[i][j] = (perlin.GetValue(x, y, seed))/5+0.25;
+      float x = float(player->xTotal-localGrid/2+i)/100000.0f;
+      float y = float(player->yTotal-localGrid/2+j)/100000.0f;
+      const size_t currLocalCell = i*localGrid+j;
+      localMap[currLocalCell] = (perlin.GetValue(x, y, seed))/5+0.25;
       //Multiply with the Height Factor
-      localMap[i][j] = localMap[i][j]*worldDepth;
+      localMap[currLocalCell] = localMap[currLocalCell]*worldDepth;
     }
   }
 }
 
-void Climate::calcWind(int day, int seed, Terrain terrain){
+void Climate::calcWind(int day, int seed, const Terrain* terrain){
   //Perlin Noise Module
 
-  module::Perlin perlin;
+  module::Perlin perlin = {};
   perlin.SetOctaveCount(2);
   perlin.SetFrequency(4);
 
@@ -355,205 +423,216 @@ void Climate::calcWind(int day, int seed, Terrain terrain){
 
   //winddirection shifts every Day
   //One Dimensional Perlin Noise
-  WindDirection[1] = (perlin.GetValue(timeInterval, seed, seed));
-  WindDirection[2] = (perlin.GetValue(timeInterval, seed+timeInterval, seed));
+  WindDirection[0] = (perlin.GetValue(timeInterval, seed, seed));
+  WindDirection[1] = (perlin.GetValue(timeInterval, seed+timeInterval, seed));
 
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
+  for(size_t i=0; i<gridSize; i++){
+    for(size_t j=0; j<gridSize; j++){
       //Previous Tiles
+      size_t k = i+cellSize*(WindDirection[0]);
+      if(k > gridSize-1){k = i;};
+      size_t l = j+cellSize*(WindDirection[1]);
+      if(l > gridSize-1){l = j;};
 
-      int k = i+10*(WindDirection[1]);
-      if(k < 0 || k > 99){k = i;};
-      int l = j+10*(WindDirection[2]);
-      if(l < 0 || l > 99){l = j;};
-
-      WindMap[i][j]=5*(1-(terrain.depthMap[i][j]-terrain.depthMap[k][l])/1000);
+      const size_t cell = i*gridSize+j;
+      const size_t fromCell = k*gridSize+l;
+      WindMap[cell]=5*(1-(terrain->depthMap[cell]-terrain->depthMap[fromCell])/1000);
     }
   }
 }
 
-void Climate::initTempMap(Terrain terrain){
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
+void Climate::initTempMap(const Terrain* terrain){
+  for(size_t i=0; i<gridSize; i++){
+    for(size_t j=0; j<gridSize; j++){
+      const size_t cell = i*gridSize+j;
+
       //Sea Temperature
-      TempMap[i][j]=0.7; //In Degrees Celsius
+      TempMap[cell]=0.7; //In Degrees Celsius
 
       //Add for Height
-      if(terrain.depthMap[i][j]>200){
+      if(terrain->depthMap[cell]>200){
         //In Degrees Celsius
-        TempMap[i][j]=1-terrain.depthMap[i][j]/2000;
+        TempMap[cell]=1-terrain->depthMap[cell]/2000;
       }
     }
   }
 }
 
-void Climate::initHumidityMap(Terrain terrain){
+void Climate::initHumidityMap(const Terrain* terrain){
   //Calculate the Humidity Grid
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
+  for(size_t i=0; i<gridSize; i++){
+    for(size_t j=0; j<gridSize; j++){
+      const size_t cell = i*gridSize+j;
+
       //Sea Level Temperature
-      HumidityMap[i][j]=0; //In Degrees Celsius
+      HumidityMap[cell]=0; //In Degrees Celsius
 
       //Humidty Increases for
-      if(terrain.depthMap[i][j]<200){
+      if(terrain->depthMap[cell]<200){
         //In Degrees Celsius
-        HumidityMap[i][j]=0.4;
+        HumidityMap[cell]=0.4;
       }
       else{
-        HumidityMap[i][j]=0.2;
+        HumidityMap[cell]=0.2;
       }
     }
   }
 }
 
 void Climate::initCloudMap(){
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
-      CloudMap[i][j]=0;
-    }
-  }
+  const size_t gridSizeSq = gridSize*gridSize;
+  memset(CloudMap,0,gridSizeSq*sizeof(bool));
 }
 
 void Climate::initRainMap(){
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
-      RainMap[i][j]=0;
-    }
-  }
+  const size_t gridSizeSq = gridSize*gridSize;
+  memset(RainMap,0,gridSizeSq);
 }
 
-void Climate::calcHumidityMap(Terrain terrain){
-  float oldHumidMap[100][100];
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
-      //Old Temperature Map
-      oldHumidMap[i][j]=HumidityMap[i][j];
-    }
-  }
+void Climate::calcHumidityMap(const Terrain* terrain){
+  const size_t gridSizeSq = gridSize*gridSize;
+  float* oldHumidMap = new float[gridSizeSq];
+  memcpy(oldHumidMap,HumidityMap,gridSizeSq*sizeof(float));
 
-  for(int i=1; i<99; i++){
-    for(int j=1; j<99; j++){
+  for(size_t i=1; i<gridSize-1; i++){
+    for(size_t j=1; j<gridSize-1; j++){
+      const size_t cell = i*gridSize+j;
+      const size_t prevRow  = (i-1)*gridSize;
+      const size_t nextRow  = (i+1)*gridSize;
+
       //Get New Map from Wind Direction
       //Indices of Previous Tile
       //Assumption: Wind Blows Despite Obstacles
-      int k = i+2*WindMap[i][j]*(WindDirection[1]);
-      if(k < 0 || k > 99){k = i;};
-      int l = j+2*WindMap[i][j]*(WindDirection[2]);
-      if(l < 0 || l > 99){l = j;};
-      //Transfer to New Tile
-      HumidityMap[i][j]=oldHumidMap[k][l];
+      size_t k = i+2*WindMap[cell]*(WindDirection[0]);
+      if(k > gridSize-1){k = i;};
+      size_t l = j+2*WindMap[cell]*(WindDirection[1]);
+      if(l > gridSize-1){l = j;};
 
-      //Average
-      HumidityMap[i][j] = (HumidityMap[i-1][j-1]+HumidityMap[i+1][j-1]+HumidityMap[i+1][j+1]+HumidityMap[i-1][j+1] + HumidityMap[i][j] + HumidityMap[i][j+1] + HumidityMap[i][j-1]+HumidityMap[i+1][j]+HumidityMap[i-1][j])/9;
+      const size_t fromCell = k*gridSize+l;
+      
+      //Transfer to New Tile
+      HumidityMap[cell]=oldHumidMap[fromCell];
+
+      //Average (with all surrounding cells)
+      HumidityMap[cell] = 
+        (HumidityMap[prevRow+j-1]+HumidityMap[prevRow+j]+HumidityMap[prevRow+j+1]+
+         HumidityMap[cell -1]+HumidityMap[cell] +HumidityMap[cell+1] +
+         HumidityMap[nextRow+j-1]+HumidityMap[nextRow+j]+HumidityMap[nextRow+j+1]
+        )/9;
 
       //We are over a body of water, temperature accelerates
       float addHumidity=0;
-      if(CloudMap[i][j]==0){
+      if(CloudMap[cell]==0){
         addHumidity=0.01;
-        if(terrain.depthMap[i][j]<=200){
-          addHumidity = 0.05*TempMap[i][j];
+        if(terrain->depthMap[cell]<=200){
+          addHumidity = 0.05*TempMap[cell];
         }
       }
 
       //Raining
       float addRain=0;
-      if(RainMap[i][j]==1){
-        addRain = -(HumidityMap[i][j])*0.8;
+      if(RainMap[cell]==1){
+        addRain = -(HumidityMap[cell])*0.8;
       }
 
-      HumidityMap[i][j]=HumidityMap[i][j]+(HumidityMap[i][j])*addRain+(1-HumidityMap[i][j])*(addHumidity);
-      if(HumidityMap[i][j]>1){HumidityMap[i][j]=1;}
-      if(HumidityMap[i][j]<0){HumidityMap[i][j]=0;}
+      HumidityMap[cell]+=(HumidityMap[cell])*addRain+(1-HumidityMap[cell])*(addHumidity);
+      if(HumidityMap[cell]>1){HumidityMap[cell]=1;}
+      if(HumidityMap[cell]<0){HumidityMap[cell]=0;}
     }
   }
+  delete oldHumidMap;
 }
 
-void Climate::calcTempMap(Terrain terrain){
-  float oldTempMap[100][100];
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
-      //Old Temperature Map
-      oldTempMap[i][j]=TempMap[i][j];
-    }
-  }
+void Climate::calcTempMap(const Terrain* terrain){
+  const size_t gridSizeSq = gridSize*gridSize;
+  float* oldTempMap = new float[gridSizeSq];
+  memcpy(oldTempMap,TempMap,gridSizeSq*sizeof(float));
 
-  for(int i=1; i<99; i++){
-    for(int j=1; j<99; j++){
+  for(size_t i=1; i<gridSize-1; i++){
+    for(size_t j=1; j<gridSize-1; j++){
+      const size_t cell = i*gridSize+j;
+      
       //Get New Map from Wind Direction
       //Indices of Previous Tile
-      int k = i+2*WindMap[i][j]*(WindDirection[1]);
-      if(k < 0 || k > 99){k = i;};
-      int l = j+2*WindMap[i][j]*(WindDirection[2]);
-      if(l < 0 || l > 99){l = j;};
+      size_t k = i+2*WindMap[cell]*(WindDirection[0]);
+      if(k > gridSize-1){k = i;};
+      size_t l = j+2*WindMap[cell]*(WindDirection[1]);
+      if(l > gridSize-1){l = j;};
+
+      const size_t fromCell = k*gridSize+l;
 
       //Transfer to New Tile
-      TempMap[i][j]=oldTempMap[k][l];
+      TempMap[cell]=oldTempMap[fromCell];
 
-      //Average
-      TempMap[i][j] = (TempMap[i-1][j-1]+TempMap[i+1][j-1]+TempMap[i+1][j+1]+TempMap[i-1][j+1])/4;
+      //Average (from corners to this cell)
+      TempMap[cell] = (TempMap[(i-1)*gridSize+j-1]+TempMap[(i+1)*gridSize+j-1]+TempMap[(i+1)*gridSize+j+1]+TempMap[(i-1)*gridSize+j+1])/4;
 
       //Various Contributions to the TempMap
       //Rising Air Cools
 
-      float addCool = 0.5*(WindMap[i][j]-5);
+      float addCool = 0.5*(WindMap[cell]-5);
 
 
       //Sunlight on Surface
       float addSun = 0;
-      if(CloudMap[i][j]==0){
-        addSun = (1-terrain.depthMap[i][j]/2000)*0.008;
+      if(CloudMap[cell]==0){
+        addSun = (1-terrain->depthMap[cell]/2000)*0.008;
       }
 
       float addRain = 0;
-      if(RainMap[i][j]==1 && TempMap[i][j]>0){
+      if(RainMap[cell]==1 && TempMap[cell]>0){
         //Rain Reduces Temperature
         addRain = -0.01;
       }
 
       //Add Contributions
 
-      TempMap[i][j]=TempMap[i][j]+0.8*(1-TempMap[i][j])*(addSun)+0.6*(TempMap[i][j])*(addRain+addCool);
-      if(TempMap[i][j]>1){TempMap[i][j]=1;}
-      if(TempMap[i][j]<0){TempMap[i][j]=0;}
+      TempMap[cell]+=0.8*(1-TempMap[cell])*(addSun)+0.6*(TempMap[cell])*(addRain+addCool);
+      if(TempMap[cell]>1){TempMap[cell]=1;}
+      if(TempMap[cell]<0){TempMap[cell]=0;}
     }
   }
+  delete oldTempMap;
 }
 
 void Climate::calcDownfallMap(){
-  float oldCloudMap[100][100];
-  float oldRainMap[100][100];
-  for(int i=0; i<100; i++){
-    for(int j=0; j<100; j++){
-      //Old Temperature Map
-      oldRainMap[i][j]=RainMap[i][j];
-      oldCloudMap[i][j]=CloudMap[i][j];
-      CloudMap[i][j]=0;
-      RainMap[i][j]=0;
-    }
-  }
-  for(int i=1; i<99; i++){
-    for(int j=1; j<99; j++){
-      //Old Coordinates
-      int k = i+2*WindMap[i][j]*(WindDirection[1]);
-      if(k < 0 || k > 99){k = i;};
-      int l = j+2*WindMap[i][j]*(WindDirection[2]);
-      if(l < 0 || l > 99){l = j;};
+  const size_t gridSizeSq = gridSize*gridSize;
+  float* oldCloudMap = new float[gridSizeSq];
+  float* oldRainMap  = new float[gridSizeSq];
+  memcpy(oldRainMap ,RainMap ,gridSizeSq*sizeof(float));
+  memcpy(oldCloudMap,CloudMap,gridSizeSq*sizeof(float));
+  memset(CloudMap,0,gridSizeSq*sizeof(bool));
+  memset(RainMap ,0,gridSizeSq*sizeof(bool));
 
+  for(size_t i=1; i<gridSize-1; i++){
+    for(size_t j=1; j<gridSize-1; j++){
+      const size_t cell = i*gridSize+j;
+      
+      //Old Coordinates
+      size_t k = i+2*WindMap[cell]*(WindDirection[0]);
+      if(k > gridSize-1){k = i;};
+      size_t l = j+2*WindMap[cell]*(WindDirection[1]);
+      if(l > gridSize-1){l = j;};
+      
+      const size_t fromCell = k*gridSize+l;
+      
       //Transfer to New Tile
-      CloudMap[i][j]=oldCloudMap[k][l];
-      RainMap[i][j]=oldRainMap[k][l];
+      CloudMap[cell]=oldCloudMap[fromCell];
+      RainMap [cell]=oldRainMap [fromCell];
 
       //Rain Condition
-      if(HumidityMap[i][j]>=0.35+0.5*TempMap[i][j]){
-        RainMap[i][j]=1;
+      if(HumidityMap[cell]>=0.35+0.5*TempMap[cell]){
+        RainMap[cell]=1;
       }
-      else if(HumidityMap[i][j]>=0.3+0.3*TempMap[i][j]){
-        CloudMap[i][j]=1;
+      else if(HumidityMap[cell]>=0.3+0.3*TempMap[cell]){
+        CloudMap[cell]=1;
       }
       else{
-        CloudMap[i][j]=0;
-        RainMap[i][j]=0;
+        CloudMap[cell]=0;
+        RainMap[cell]=0;
       }
     }
   }
+  delete oldCloudMap;
+  delete oldRainMap;
 }

@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "ProceduralWeather",
+      "program": "${workspaceFolder}/territory",
+      "args": ["100", "50", "2"],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "compile"
+    }
+  ]
+}
